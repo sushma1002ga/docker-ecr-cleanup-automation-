@@ -7,56 +7,87 @@ ecr = boto3.client("ecr")
 DAYS_THRESHOLD = int(os.environ.get("DAYS_THRESHOLD", "30"))
 
 
+# ----------------------------
+# Get all repositories
+# ----------------------------
 def get_all_repositories():
     repos = []
     paginator = ecr.get_paginator("describe_repositories")
 
     for page in paginator.paginate():
-        for repo in page["repositories"]:
+        for repo in page.get("repositories", []):
             repos.append(repo["repositoryName"])
 
     return repos
 
 
+# ----------------------------
+# Cleanup single repository
+# ----------------------------
 def cleanup_repository(repo_name):
-    print(f"Processing repo: {repo_name}")
-
-    response = ecr.describe_images(repositoryName=repo_name)
-
-    image_details = response.get("imageDetails", [])
+    print(f"\nProcessing repo: {repo_name}")
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=DAYS_THRESHOLD)
 
+    image_details = []
+
+    # ✅ FIX 1: Pagination added
+    paginator = ecr.get_paginator("describe_images")
+
+    for page in paginator.paginate(repositoryName=repo_name):
+        image_details.extend(page.get("imageDetails", []))
+
     delete_list = []
-    deleted = untagged = old = 0
+    deleted = 0
+    untagged = 0
+    old = 0
 
     for img in image_details:
 
         digest = img["imageDigest"]
-        tags = img.get("imageTags", [])
+        tags = img.get("imageTags") or []
         pushed_at = img["imagePushedAt"]
 
-        # protect latest
-        if tags and "latest" in tags:
+        # Skip latest (safety)
+        if "latest" in tags:
             continue
 
-        # untagged
-        if not tags:
+        # ----------------------------
+        # Untagged images
+        # ----------------------------
+        if len(tags) == 0:
             delete_list.append({"imageDigest": digest})
             untagged += 1
             continue
 
-        # old images
+        # ----------------------------
+        # Old images
+        # ----------------------------
         if pushed_at < cutoff:
             delete_list.append({"imageDigest": digest})
             old += 1
 
+    # ----------------------------
+    # Delete images
+    # ----------------------------
     if delete_list:
-        result = ecr.batch_delete_image(
+        print(f"Deleting {len(delete_list)} images from {repo_name}")
+
+        response = ecr.batch_delete_image(
             repositoryName=repo_name,
             imageIds=delete_list
         )
-        deleted = len(result.get("imageIds", []))
+
+        # ✅ FIX 2: handle failures properly
+        print("DELETE RESPONSE:", response)
+
+        failures = response.get("failures", [])
+        success = response.get("imageIds", [])
+
+        if failures:
+            print("DELETE FAILURES:", failures)
+
+        deleted = len(success)
 
     return {
         "repo": repo_name,
@@ -66,6 +97,9 @@ def cleanup_repository(repo_name):
     }
 
 
+# ----------------------------
+# Cleanup all repositories
+# ----------------------------
 def cleanup_all_repositories():
     repos = get_all_repositories()
 
