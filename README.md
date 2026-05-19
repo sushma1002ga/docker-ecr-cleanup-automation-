@@ -1,111 +1,176 @@
-Docker ECR Cleanup Automation
+# Docker ECR Cleanup Automation
 
-1. Project Overview
-This project automates cleanup of Amazon ECR Docker images using AWS Lambda.
-It removes untagged (dangling) images from repositories.
-It removes old images based on a retention policy.
-It skips protected images such as “latest”.
-It sends notifications using SNS (email) and Slack.
-It runs automatically using EventBridge scheduling.
-It is deployed using GitHub Actions CI/CD pipeline.
+Automated solution for managing Amazon ECR (Elastic Container Registry) Docker images using AWS Lambda. This project intelligently removes untagged and outdated images while protecting critical releases.
 
+## Table of Contents
 
-      AWS Services Used
-    Service	   Purpose
-AWS Lambda	    Core cleanup engine
-Amazon ECR	    Docker image storage
-EventBridge	    Scheduled execution
-SNS	            Email notifications
-Slack Webhook	Team alerts
-IAM	Security    permissions
-CloudWatch	     Logging
+- [Overview](#overview)
+- [Features](#features)
+- [AWS Services](#aws-services)
+- [Project Structure](#project-structure)
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Setup & Configuration](#setup--configuration)
+- [Workflow Execution](#workflow-execution)
+- [Testing](#testing)
+- [CI/CD Pipeline](#cicd-pipeline)
 
-   Project Structure
+## Overview
+
+This project automates cleanup of Amazon ECR Docker images using AWS Lambda, implementing intelligent retention policies while ensuring critical images remain protected.
+
+## Features
+
+✓ **Automated cleanup** - Remove untagged (dangling) images from repositories  
+✓ **Retention policy** - Delete old images based on configurable policies  
+✓ **Protected images** - Skip critical tags like "latest"  
+✓ **Notifications** - Multi-channel alerts via SNS (email) and Slack  
+✓ **Scheduled execution** - Automatic runs using EventBridge scheduling  
+✓ **CI/CD ready** - GitHub Actions deployment pipeline  
+
+## AWS Services
+
+| Service | Purpose |
+|---------|---------|
+| AWS Lambda | Core cleanup engine |
+| Amazon ECR | Docker image storage |
+| EventBridge | Scheduled execution triggers |
+| SNS | Email notifications |
+| Slack Webhook | Team alerts |
+| IAM | Security permissions |
+| CloudWatch | Logging & monitoring |
+
+## Project Structure
+
+```
 docker-ecr-cleanup-automation/
 │
 ├── lambda/
-│   ├── app.py              # Lambda entry point
-│   ├── ecr_cleanup.py     # Cleanup logic
-│   ├── notifier.py        # SNS + Slack notifications
+│   ├── app.py                 # Lambda entry point
+│   ├── ecr_cleanup.py         # Core cleanup logic
+│   └── notifier.py            # SNS + Slack notifications
 │
 ├── .github/workflows/
-│   └── deploy.yml         # CI/CD pipeline
+│   └── deploy.yml             # CI/CD pipeline
 │
-└── README.md
+└── README.md                  # Project documentation
+```
 
-Architecture Flow
-EventBridge triggers AWS Lambda on schedule
-Lambda scans all ECR repositories
-It fetches all images from each repository
-It classifies images into:
-Untagged images
-Old images
-Protected images
-It deletes eligible images using ECR API
-It sends cleanup report to:
-SNS (Email notification)
-Slack channel
+## Architecture
 
+The solution follows this execution flow:
 
-Project Structure
-lambda/app.py → Lambda entry point
-lambda/ecr_cleanup.py → Core cleanup logic
-lambda/notifier.py → SNS + Slack notifications
-.github/workflows/deploy.yml → CI/CD pipeline
-README.md → Project documentation
+1. **Trigger** - EventBridge invokes AWS Lambda on schedule
+2. **Scan** - Lambda scans all ECR repositories
+3. **Classify** - Images categorized as:
+   - Untagged images (candidates for deletion)
+   - Old images (based on retention policy)
+   - Protected images (skip deletion)
+4. **Delete** - Eligible images removed using ECR API
+5. **Notify** - Cleanup report sent to:
+   - SNS (Email notification)
+   - Slack channel
 
+## Prerequisites
 
+- AWS Account with ECR repositories
+- Lambda execution role with appropriate IAM permissions
+- SNS topic for email notifications
+- Slack webhook URL (optional)
+- GitHub repository for CI/CD
 
-Workflow Execution Steps
-EventBridge triggers Lambda automatically
-Lambda calls describe_repositories()
-It fetches images using describe_images()
-It checks each image:
-Untagged → mark for deletion
-Old → mark for deletion
-latest → skip
-It deletes images using batch_delete_image()
-Sends summary report to SNS + Slack
+## Setup & Configuration
 
+### Required IAM Permissions
 
-Test Scenario Setup
-6.1 Create tagged image (safe image)
-Build and tag image
-Push to ECR as keep-tagged
-6.2 Create dangling image
-Push image as dangling-test
-Remove tag using batch-delete-image
-Image becomes untagged (dangling)
+The Lambda execution role must include:
 
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecr:DescribeRepositories",
+        "ecr:DescribeImages",
+        "ecr:ListImages",
+        "ecr:BatchDeleteImage"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
 
+### EventBridge Schedule
 
-IAM Permissions Required
-ecr:DescribeRepositories
-ecr:DescribeImages
-ecr:ListImages
-ecr:BatchDeleteImage
+Configure the cleanup schedule using a cron expression:
 
+```
+cron(0 2 * * ? *)    # Daily cleanup at 2 AM UTC
+```
 
-EventBridge Schedule
-Runs using cron expression
-Example schedule:
-Daily cleanup at 2 AM UTC  (any scheduled time as per requirement)
-Cron expression:
-cron(0 2 * * ? *)  
+Modify the time based on your requirements.
 
+## Workflow Execution
 
-Output Example
-Total Deleted Images: 3
-Total Untagged Images: 1
-Total Old Images: 2
-Repositories Processed: 5
-Status: Cleanup Completed Successfully
+The Lambda function executes the following steps:
 
+1. Call `describe_repositories()` to list all ECR repositories
+2. Fetch images using `describe_images()` for each repository
+3. Evaluate each image:
+   - **Untagged** → Mark for deletion
+   - **Old** → Mark for deletion (based on age threshold)
+   - **Protected** (e.g., "latest") → Skip
+4. Delete eligible images using `batch_delete_image()`
+5. Send cleanup summary report to SNS and Slack
 
+## Testing
 
-CI/CD Pipeline (GitHub Actions)
-Code pushed to main branch
-GitHub Actions triggers workflow
-Lambda package is created
-Deployment happens automatically to AWS Lambda
-No manual deployment required
+### Test Scenario: Tagged Image (Protected)
+
+1. Build and tag image locally
+2. Push to ECR with tag: `keep-tagged`
+3. Verify image is preserved after cleanup
+
+### Test Scenario: Dangling Image (Untagged)
+
+1. Push image with tag: `dangling-test`
+2. Remove tag using `batch_delete_image()`
+3. Image becomes untagged
+4. Verify image is deleted after cleanup
+
+### Sample Output
+
+```
+Total Deleted Images:     3
+Total Untagged Images:    1
+Total Old Images:         2
+Repositories Processed:   5
+Status:                   Cleanup Completed Successfully
+```
+
+## CI/CD Pipeline
+
+This project uses **GitHub Actions** for automated deployment:
+
+1. Code pushed to `main` branch
+2. GitHub Actions workflow triggers automatically
+3. Lambda package created
+4. Automatic deployment to AWS Lambda
+5. No manual deployment required
+
+### Workflow File: `.github/workflows/deploy.yml`
+
+The deployment pipeline:
+- Builds the Lambda package
+- Deploys to AWS Lambda
+- Validates the deployment
+- Sends status notifications
+
+---
+
+**Maintainer:** [Your Name]  
+**License:** MIT  
+**Last Updated:** 2026-05-19
