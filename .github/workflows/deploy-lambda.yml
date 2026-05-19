@@ -2,35 +2,43 @@ name: Deploy Lambda
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
 
-      - name: Install dependencies
+      - name: Verify AWS Access
+        run: aws sts get-caller-identity
+
+      - name: Install Dependencies
         run: |
           cd lambda
           pip install -r requirements.txt -t .
 
-      - name: Zip Lambda package
+      - name: Zip Lambda Package
         run: |
           cd lambda
           zip -r function.zip .
+
+      - name: Verify ZIP Exists
+        run: ls -lh lambda/function.zip
 
       - name: Deploy to Lambda
         run: |
           aws lambda update-function-code \
             --function-name docker-ecr-cleanup \
-            --zip-file fileb://lambda/function.zip
+            --zip-file fileb://lambda/function.zip \
+            --region ap-south-1
