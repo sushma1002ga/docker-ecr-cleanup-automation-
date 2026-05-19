@@ -1,9 +1,11 @@
 import boto3
+import os
 from datetime import datetime, timezone, timedelta
 
 ecr = boto3.client("ecr")
 
-DAYS_THRESHOLD = int(__import__("os").getenv("DAYS_THRESHOLD", "30"))
+DAYS_THRESHOLD = int(os.environ.get("DAYS_THRESHOLD", "30"))
+
 
 def get_all_repositories():
     repos = []
@@ -17,43 +19,44 @@ def get_all_repositories():
 
 
 def cleanup_repository(repo_name):
-    image_details = ecr.describe_images(repositoryName=repo_name)
+    print(f"Processing repo: {repo_name}")
 
-    deleted = 0
-    untagged = 0
-    old = 0
+    response = ecr.describe_images(repositoryName=repo_name)
 
-    delete_list = []
+    image_details = response.get("imageDetails", [])
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=DAYS_THRESHOLD)
 
-    for img in image_details.get("imageDetails", []):
+    delete_list = []
+    deleted = untagged = old = 0
+
+    for img in image_details:
 
         digest = img["imageDigest"]
-        pushed_at = img["imagePushedAt"]
         tags = img.get("imageTags", [])
+        pushed_at = img["imagePushedAt"]
 
-        # skip latest protection (optional safety)
+        # protect latest
         if tags and "latest" in tags:
             continue
 
-        # Untagged images
+        # untagged
         if not tags:
             delete_list.append({"imageDigest": digest})
             untagged += 1
             continue
 
-        # Old images
+        # old images
         if pushed_at < cutoff:
             delete_list.append({"imageDigest": digest})
             old += 1
 
     if delete_list:
-        response = ecr.batch_delete_image(
+        result = ecr.batch_delete_image(
             repositoryName=repo_name,
             imageIds=delete_list
         )
-        deleted = len(response.get("imageIds", []))
+        deleted = len(result.get("imageIds", []))
 
     return {
         "repo": repo_name,
@@ -73,8 +76,8 @@ def cleanup_all_repositories():
 
     for repo in repos:
         result = cleanup_repository(repo)
-        summary.append(result)
 
+        summary.append(result)
         total_deleted += result["deleted"]
         total_untagged += result["untagged"]
         total_old += result["old"]
