@@ -6,7 +6,7 @@ def lambda_handler(event, context):
         result = cleanup_all_repositories()
 
         message = f"""
-🚀 ECR Cleanup Completed
+ECR Cleanup Completed
 
 Total Deleted: {result['total_deleted']}
 Total Untagged: {result['total_untagged']}
